@@ -2,26 +2,31 @@
 
 import sys
 
-from parser import extract_assets
+from crawler import Crawler
 
 
 def processor():
     if len(sys.argv) > 1:
-        for fn in sys.argv[1:]:
-            try:
-                with open(fn, 'r') as fp:
-                    html_document = fp.read()
-                assets = extract_assets(html_document)
-            except IOError:
-                print 'I/O error while parsing file {}'.format(fn)
-                continue
+        for hostname in sys.argv[1:]:
+            crawler = Crawler(hostname)
+            print u'Crawling {}'.format(hostname)
+            sitemap = crawler.traverse()
 
-            print 'Assets in {}:\n'.format(fn)
-            for asset in assets:
-                print '*', asset
-            print '---\n'
+            pages = sorted(sitemap.keys())
+
+            print u'Pages:\n{}\n'.format('\n'.join(pages))
+
+            for page in pages:
+                assets = sitemap[page]
+                if assets:
+                    print u'Assets on {}:\n{}\n'.format(
+                        page,
+                        '\n'.join(sorted(assets)),
+                    )
+                else:
+                    print u'No assets on {}'.format(page)
     else:
-        print 'Usage: bluecoat <filename> [<filename2>...]'
+        print u'Usage: bluecoat <host>'
 
 
 if __name__ == '__main__':
