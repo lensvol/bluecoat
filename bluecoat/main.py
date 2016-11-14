@@ -26,7 +26,7 @@ def processor():
         for hostname in sys.argv[1:]:
             crawler = Crawler(hostname)
 
-            print u'{}\nCrawling {}...'.format(
+            print u'{}\nCrawling {}...\n'.format(
                 '-' * 32,
                 hostname,
             )
@@ -36,7 +36,6 @@ def processor():
                 print 'Nothing to see on {}, moving on.\n'.format(hostname)
                 continue
 
-            print 'Hostname: {}'.format(hostname)
             print_sitemap(sitemap)
     else:
         print u'Usage: bluecoat <host> [<host>...]'

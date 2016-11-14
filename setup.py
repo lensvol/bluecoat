@@ -31,7 +31,14 @@ setup(
     long_description=DESCRIPTION,
     install_requires=[
         'beautifulsoup4==4.5.1',
+        'requests==2.11.1',
     ],
+    setup_requires=['pytest-runner'],
+    tests_require=[
+        'pytest==3.0.4',
+        'responses==0.5.1',
+    ],
+    test_suite='tests',
     classifiers=[
         'Development Status :: 3 - Alpha',
         'Topic :: Utilities',
