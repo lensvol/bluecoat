@@ -6,7 +6,10 @@ import posixpath
 import requests
 
 from bluecoat.parser import extract_assets
-from bluecoat.exceptions import CrawlerException
+from bluecoat.exceptions import (
+    CrawlerException,
+    NothingToCrawlException,
+)
 
 
 class Crawler(object):
@@ -14,9 +17,9 @@ class Crawler(object):
     Web crawler which lists pages on a site and prepares a map of
     resources referenced from them.
     """
-    starting_address = None
-    our_address = None
-    session = None
+    _starting_address = None
+    _our_address = None
+    _session = None
 
     def __init__(self, url):
         # We need to explicitly add scheme here,
@@ -24,15 +27,15 @@ class Crawler(object):
         if not url.startswith('http'):
             url = 'http://' + url
 
-        self.starting_address = url
-        self.our_address = urlparse(self.starting_address)
-        self.session = requests.Session()
+        self._starting_address = url
+        self._our_address = urlparse(self._starting_address)
+        self._session = requests.Session()
 
     def _is_url_local(self, url):
         """
         Check if supplied URL is local relative to our starting point
         """
-        return not url.netloc or url.netloc == self.our_address.netloc
+        return not url.netloc or url.netloc == self._our_address.netloc
 
     def _canonicalize(self, url):
         """
@@ -43,7 +46,7 @@ class Crawler(object):
         """
         parsed_path = url.path
 
-        if not self.our_address:
+        if not self._our_address:
             raise ValueError('Can\'t canonicalize URL without local address')
 
         # Must be external host, leave as it is
@@ -57,7 +60,7 @@ class Crawler(object):
 
         # No need to waste CPU if we resolve root path
         if parsed_path in ['.', '/']:
-            return self.our_address
+            return self._our_address
 
         # Compensate for '../' in URL
         resolved_path = posixpath.normpath(parsed_path)
@@ -68,9 +71,9 @@ class Crawler(object):
             resolved_path += '/'
 
         canon_url = url._replace(
-            scheme=self.our_address.scheme or 'http',
+            scheme=self._our_address.scheme or 'http',
             path=resolved_path,
-            netloc=self.our_address.netloc,
+            netloc=self._our_address.netloc,
             fragment=None,
         )
         return canon_url
@@ -96,14 +99,14 @@ class Crawler(object):
         We will panic if anything other than 200.
         """
         try:
-            response = self.session.get(full_url)
+            response = self._session.get(full_url)
         except Exception, e:
             raise CrawlerException(e.message)
 
         content_type = response.headers.get('Content-Type', 'text/html').split(';')
         if response.status_code != 200:
             raise CrawlerException('Unexpected status: {}'.format(response.status_code))
-        elif content_type != 'text/html':
+        elif content_type[0] != 'text/html':
             raise CrawlerException('Unexpected Content-Type: {}'.format(content_type))
 
         return full_url, extract_assets(response.content)
@@ -114,7 +117,7 @@ class Crawler(object):
         address. Our crawler will try to discover and extract links to local
         assets from any visible page (HTML).
         """
-        links_to_traverse = {self.our_address.geturl()}
+        links_to_traverse = {self._our_address.geturl()}
         already_seen = set()
         sitemap = {}
 
@@ -130,10 +133,9 @@ class Crawler(object):
                 )
                 continue
 
-            full_url = full_url.replace(self.starting_address, '') or '/'
+            full_url = full_url.replace(self._starting_address, '') or '/'
             assets = map(urlparse, assets)
             assets = set(map(self._canonicalize, assets))
-
             sitemap[full_url] = [
                 link.geturl()
                 for link in assets
@@ -150,10 +152,17 @@ class Crawler(object):
                 if link.geturl() not in already_seen
             ]
             links_to_traverse.update(new_links)
+
+        # If we have no resources and visited only one link, then it means
+        # we failed completely at crawling that site.
+        # TODO: Better design next time, so this hack would not be needed
+        if not sitemap and len(already_seen) == 1:
+            raise NothingToCrawlException(self._starting_address)
+
         return sitemap
 
     def __repr__(self):
         return '{}({})'.format(
             self.__class__.__name__,
-            repr(self.starting_address),
+            repr(self._starting_address),
         )
