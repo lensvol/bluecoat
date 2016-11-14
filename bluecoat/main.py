@@ -5,6 +5,21 @@ import sys
 from crawler import Crawler
 
 
+def print_sitemap(sitemap):
+    pages = sorted(sitemap.keys())
+
+    print u'Pages:\n{}\n'.format('\n'.join(pages))
+    for page in pages:
+        assets = sitemap[page]
+        if assets:
+            print u'Assets on {}:\n{}\n'.format(
+                page,
+                '\n'.join(sorted(assets)),
+            )
+        else:
+            print u'No assets on {}'.format(page)
+
+
 def processor():
     if len(sys.argv) > 1:
         for hostname in sys.argv[1:]:
@@ -12,19 +27,7 @@ def processor():
             print u'Crawling {}'.format(hostname)
             sitemap = crawler.traverse()
 
-            pages = sorted(sitemap.keys())
-
-            print u'Pages:\n{}\n'.format('\n'.join(pages))
-
-            for page in pages:
-                assets = sitemap[page]
-                if assets:
-                    print u'Assets on {}:\n{}\n'.format(
-                        page,
-                        '\n'.join(sorted(assets)),
-                    )
-                else:
-                    print u'No assets on {}'.format(page)
+            print_sitemap(sitemap)
     else:
         print u'Usage: bluecoat <host>'
 

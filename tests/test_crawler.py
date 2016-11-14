@@ -21,7 +21,7 @@ def crawler():
     ('/image/logo.jpg', False),
 ])
 def test_looks_like_page(crawler, url, expected):
-    assert crawler.looks_like_page(url) == expected
+    assert crawler._looks_like_page(url) == expected
 
 
 @pytest.mark.parametrize('url, expected', [
@@ -33,7 +33,7 @@ def test_looks_like_page(crawler, url, expected):
     ('//scheme.less/index.html', False),
 ])
 def test_is_local_url(crawler, url, expected):
-    assert crawler.is_url_local(url) == expected
+    assert crawler._is_url_local(url) == expected
 
 
 @pytest.mark.parametrize('url, expected', [
@@ -43,7 +43,8 @@ def test_is_local_url(crawler, url, expected):
     ('/../../contacts.html', 'http://localhost/contacts.html'),
     ('.', 'http://localhost/'),
     ('/', 'http://localhost/'),
+    ('https://facebook.com', 'https://facebook.com'),
 ])
 def test_canonicalize(crawler, url, expected):
-    assert crawler.canonicalize(url) == expected
+    assert crawler._canonicalize(url) == expected
 

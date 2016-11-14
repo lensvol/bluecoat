@@ -2,17 +2,20 @@
 
 import requests
 
-from urlparse import urlsplit, urlunsplit, urlparse
-from parser import extract_assets
+from urlparse import urlparse
 import posixpath
+
+from bluecoat.parser import extract_assets
+from bluecoat.exceptions import CrawlerException
 
 
 class Crawler(object):
     starting_address = None
     our_address = None
+    session = None
 
-    def extract_hostname(self, url):
-        parts = urlsplit(url)
+    def _extract_hostname(self, url):
+        parts = urlparse(url)
         return parts.netloc
 
     def __init__(self, url):
@@ -20,15 +23,20 @@ class Crawler(object):
             url = 'http://' + url
 
         self.starting_address = url
-        self.our_address = urlsplit(self.starting_address)
+        self.our_address = urlparse(self.starting_address)
+        self.session = requests.Session()
 
-    def is_url_local(self, url):
-        hostname = self.extract_hostname(url)
+    def _is_url_local(self, url):
+        hostname = self._extract_hostname(url)
         return not hostname or hostname == self.our_address.netloc
 
-    def canonicalize(self, url):
+    def _canonicalize(self, url):
         parsed = urlparse(url)
         parsed_path = parsed.path
+
+        # Must be external host, leave as it is
+        if parsed.netloc and parsed.netloc != self.our_address.netloc:
+            return url
 
         # We need this to correctly compensate for '../' at root,
         # e.g. '../about.html'
@@ -38,10 +46,6 @@ class Crawler(object):
         # No need to waste CPU if we resolve root path
         if parsed_path in ['.', '/']:
             return self.our_address.geturl()
-
-        # Must be external host, leave as it is
-        if parsed.netloc and parsed.netloc != self.our_address.netloc:
-            return url
 
         # Compensate for '../' in URL
         resolved_path = posixpath.normpath(parsed_path)
@@ -59,8 +63,8 @@ class Crawler(object):
         )
         return canon_url.geturl()
 
-    def looks_like_page(self, url):
-        parts = urlsplit(url)
+    def _looks_like_page(self, url):
+        parts = urlparse(url)
         last_part = parts.path.rsplit('/')[-1]
 
         return any([
@@ -71,34 +75,48 @@ class Crawler(object):
         ])
 
     def crawl_page(self, url):
-        full_url = self.canonicalize(url)
-        response = requests.get(full_url)
-        return full_url, extract_assets(response.content)
+        full_url = self._canonicalize(url)
+        try:
+            response = self.session.get(full_url)
+            assets = extract_assets(response.content)
+        except Exception, e:
+            raise CrawlerException(e.message)
+
+        if response.status_code != 200:
+            message = 'Unexpected status code: {}'.format(response.status_code)
+            raise CrawlerException(message)
+
+        return full_url, assets
 
     def traverse(self):
-        links_to_traverse = {self.canonicalize(self.starting_address)}
+        links_to_traverse = {self._canonicalize(self.starting_address)}
         already_seen = set()
 
         sitemap = {}
         while links_to_traverse:
             page = links_to_traverse.pop()
-            full_url, assets = self.crawl_page(page)
-
             already_seen.add(page)
+            try:
+                full_url, assets = self.crawl_page(page)
+            except CrawlerException, ce:
+                print 'Crawling failed for {}: {}'.format(
+                    page,
+                    ce.message,
+                )
+                continue
+
             full_url = full_url.replace(self.starting_address, '') or '/'
-            sitemap[full_url] = list(set(map(self.canonicalize, assets)))
+            sitemap[full_url] = list(set(map(self._canonicalize, assets)))
 
             local_links = filter(
-                lambda url: self.is_url_local(url) and self.looks_like_page(url),
+                lambda url: self._is_url_local(url) and self._looks_like_page(url),
                 set(assets),
             )
             new_links = [
-                link
-                for link in local_links
+                link for link in local_links
                 if link not in already_seen
             ]
             links_to_traverse.update(new_links)
-
         return sitemap
 
     def __repr__(self):
