@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from bluecoat.crawler import Crawler
+from urlparse import urlparse
 import pytest
 
 
@@ -21,7 +22,7 @@ def crawler():
     ('/image/logo.jpg', False),
 ])
 def test_looks_like_page(crawler, url, expected):
-    assert crawler._looks_like_page(url) == expected
+    assert crawler._looks_like_page(urlparse(url)) == expected
 
 
 @pytest.mark.parametrize('url, expected', [
@@ -33,7 +34,7 @@ def test_looks_like_page(crawler, url, expected):
     ('//scheme.less/index.html', False),
 ])
 def test_is_local_url(crawler, url, expected):
-    assert crawler._is_url_local(url) == expected
+    assert crawler._is_url_local(urlparse(url)) == expected
 
 
 @pytest.mark.parametrize('url, expected', [
@@ -46,5 +47,4 @@ def test_is_local_url(crawler, url, expected):
     ('https://facebook.com', 'https://facebook.com'),
 ])
 def test_canonicalize(crawler, url, expected):
-    assert crawler._canonicalize(url) == expected
-
+    assert crawler._canonicalize(urlparse(url)).geturl() == expected

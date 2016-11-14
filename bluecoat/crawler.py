@@ -1,24 +1,26 @@
 # -*- coding: utf-8 -*-
 
-import requests
-
 from urlparse import urlparse
 import posixpath
+
+import requests
 
 from bluecoat.parser import extract_assets
 from bluecoat.exceptions import CrawlerException
 
 
 class Crawler(object):
+    """
+    Web crawler which lists pages on a site and prepares a map of
+    resources referenced from them.
+    """
     starting_address = None
     our_address = None
     session = None
 
-    def _extract_hostname(self, url):
-        parts = urlparse(url)
-        return parts.netloc
-
     def __init__(self, url):
+        # We need to explicitly add scheme here,
+        # because requests requires it
         if not url.startswith('http'):
             url = 'http://' + url
 
@@ -27,15 +29,25 @@ class Crawler(object):
         self.session = requests.Session()
 
     def _is_url_local(self, url):
-        hostname = self._extract_hostname(url)
-        return not hostname or hostname == self.our_address.netloc
+        """
+        Check if supplied URL is local relative to our starting point
+        """
+        return not url.netloc or url.netloc == self.our_address.netloc
 
     def _canonicalize(self, url):
-        parsed = urlparse(url)
-        parsed_path = parsed.path
+        """
+        Clean supplied URL, discarding query fragments (hashbangs) and parameters.
+        Also we will try to resolve path traversal symbols ('.', '..').
+
+        This function won't try to improve URLs external to our starting point.
+        """
+        parsed_path = url.path
+
+        if not self.our_address:
+            raise ValueError('Can\'t canonicalize URL without local address')
 
         # Must be external host, leave as it is
-        if parsed.netloc and parsed.netloc != self.our_address.netloc:
+        if not self._is_url_local(url):
             return url
 
         # We need this to correctly compensate for '../' at root,
@@ -45,26 +57,28 @@ class Crawler(object):
 
         # No need to waste CPU if we resolve root path
         if parsed_path in ['.', '/']:
-            return self.our_address.geturl()
+            return self.our_address
 
         # Compensate for '../' in URL
         resolved_path = posixpath.normpath(parsed_path)
 
         # There is something weird going on with trailing slashes
         # (see https://bugs.python.org/issue1707768)
-        if parsed.path.endswith('/'):
+        if url.path.endswith('/'):
             resolved_path += '/'
 
-        canon_url = parsed._replace(
-            scheme=self.our_address.scheme,
+        canon_url = url._replace(
+            scheme=self.our_address.scheme or 'http',
             path=resolved_path,
             netloc=self.our_address.netloc,
             fragment=None,
         )
-        return canon_url.geturl()
+        return canon_url
 
-    def _looks_like_page(self, url):
-        parts = urlparse(url)
+    def _looks_like_page(self, parts):
+        """
+        Heuristic detection of possible candidates for asset extraction.
+        """
         last_part = parts.path.rsplit('/')[-1]
 
         return any([
@@ -74,25 +88,36 @@ class Crawler(object):
             last_part and '.' not in last_part,
         ])
 
-    def crawl_page(self, url):
-        full_url = self._canonicalize(url)
+    def crawl_page(self, full_url):
+        """
+        Retrieve requested URL and try to extract all available
+        assets from received content.
+
+        We will panic if anything other than 200.
+        """
         try:
             response = self.session.get(full_url)
-            assets = extract_assets(response.content)
         except Exception, e:
             raise CrawlerException(e.message)
 
+        content_type = response.headers.get('Content-Type', 'text/html').split(';')
         if response.status_code != 200:
-            message = 'Unexpected status code: {}'.format(response.status_code)
-            raise CrawlerException(message)
+            raise CrawlerException('Unexpected status: {}'.format(response.status_code))
+        elif content_type != 'text/html':
+            raise CrawlerException('Unexpected Content-Type: {}'.format(content_type))
 
-        return full_url, assets
+        return full_url, extract_assets(response.content)
 
-    def traverse(self):
-        links_to_traverse = {self._canonicalize(self.starting_address)}
+    def generate_sitemap(self):
+        """
+        Generate sitemap-like collection of resources from specified starting
+        address. Our crawler will try to discover and extract links to local
+        assets from any visible page (HTML).
+        """
+        links_to_traverse = {self.our_address.geturl()}
         already_seen = set()
-
         sitemap = {}
+
         while links_to_traverse:
             page = links_to_traverse.pop()
             already_seen.add(page)
@@ -106,15 +131,23 @@ class Crawler(object):
                 continue
 
             full_url = full_url.replace(self.starting_address, '') or '/'
-            sitemap[full_url] = list(set(map(self._canonicalize, assets)))
+            assets = map(urlparse, assets)
+            assets = set(map(self._canonicalize, assets))
 
+            sitemap[full_url] = [
+                link.geturl()
+                for link in assets
+            ]
+
+            # We only want to follow only links local to this site
+            # and skip resources e.g .js, .css and so on.
             local_links = filter(
                 lambda url: self._is_url_local(url) and self._looks_like_page(url),
                 set(assets),
             )
             new_links = [
-                link for link in local_links
-                if link not in already_seen
+                link.geturl() for link in local_links
+                if link.geturl() not in already_seen
             ]
             links_to_traverse.update(new_links)
         return sitemap

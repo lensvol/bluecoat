@@ -17,7 +17,7 @@ def print_sitemap(sitemap):
                 '\n'.join(sorted(assets)),
             )
         else:
-            print u'No assets on {}'.format(page)
+            print u'No assets on {}\n'.format(page)
 
 
 def processor():
@@ -25,7 +25,7 @@ def processor():
         for hostname in sys.argv[1:]:
             crawler = Crawler(hostname)
             print u'Crawling {}'.format(hostname)
-            sitemap = crawler.traverse()
+            sitemap = crawler.generate_sitemap()
 
             print_sitemap(sitemap)
     else:
